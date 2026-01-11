@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Packed Delivery Platform</title>
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<!-- ================= CUSTOMER TRACKING ================= -->
+<div id="trackingPage" class="hidden flex items-center justify-center min-h-screen">
+  <div class="bg-white p-8 rounded-xl shadow w-full max-w-lg">
+    <h2 class="text-2xl font-bold mb-4 text-center">Track Your Shipment</h2>
+
+    <input id="trackInput"
+           class="w-full border p-3 rounded mb-4"
+           placeholder="Enter Tracking ID">
+
+    <button onclick="trackShipment()"
+            class="w-full bg-green-800 text-white py-3 rounded font-semibold">
+      Track Shipment
+    </button>
+
+    <div id="trackResult" class="mt-6 text-gray-700"></div>
+  </div>
+</div>
+
+<!-- ================= ADMIN LOGIN ================= -->
+<div id="loginPage" class="flex items-center justify-center min-h-screen">
+  <div class="bg-white p-8 rounded-xl shadow w-full max-w-md">
+    <h2 class="text-2xl font-bold mb-6 text-center">Admin Login</h2>
+
+    <input id="email"
+           class="w-full border p-3 rounded mb-3"
+           placeholder="Admin Email">
+
+    <input id="password"
+           type="password"
+           class="w-full border p-3 rounded mb-4"
+           placeholder="Password">
+
+    <button id="loginBtn"
+            class="w-full bg-green-800 text-white py-3 rounded font-semibold">
+      Login
+    </button>
+
+    <p id="loginError" class="text-red-600 mt-3 text-center"></p>
+  </div>
+</div>
+
+<!-- ================= ADMIN DASHBOARD ================= -->
+<div id="dashboard" class="hidden p-8 max-w-6xl mx-auto">
+
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold">Admin Dashboard</h1>
+    <button onclick="logout()"
+            class="bg-red-600 text-white px-4 py-2 rounded">
+      Logout
+    </button>
+  </div>
+
+  <!-- Add Shipment -->
+  <div class="bg-white p-6 rounded-xl shadow mb-6">
+    <h3 class="text-xl font-semibold mb-4">Add / Update Shipment</h3>
+
+    <div class="grid grid-cols-2 gap-4">
+      <input id="trackId" class="border p-3 rounded" placeholder="Tracking ID">
+      <input id="eta" class="border p-3 rounded" placeholder="ETA">
+      <input id="originCity" class="border p-3 rounded" placeholder="Origin City">
+      <input id="destinationCity" class="border p-3 rounded" placeholder="Destination City">
+
+      <select id="stage" class="border p-3 rounded col-span-2">
+        <option value="0">Shipment info received</option>
+        <option value="1">Picked up</option>
+        <option value="2">Departed origin</option>
+        <option value="3">In transit</option>
+        <option value="4">Arrived at hub</option>
+        <option value="5">Customs clearance</option>
+        <option value="6">Out for delivery</option>
+        <option value="7">Delivered</option>
+      </select>
+    </div>
+
+    <button id="saveBtn"
+            class="mt-4 bg-green-800 text-white px-6 py-3 rounded font-semibold">
+      Save Shipment
+    </button>
+  </div>
+
+  <!-- Shipments -->
+  <div class="bg-white p-6 rounded-xl shadow">
+    <h3 class="text-xl font-semibold mb-4">Shipments</h3>
+    <div id="shipmentsList" class="space-y-3"></div>
+  </div>
+</div>
+
+<!-- ================= SCRIPT ================= -->
+<script>
+"use strict";
+
+/* ---------- Helpers ---------- */
+const $ = id => document.getElementById(id);
+const API = "/.netlify/functions";
+
+/* ---------- Mode Detection ---------- */
+const params = new URLSearchParams(location.search);
+const isTracking = params.get("track") === "1";
+
+if(isTracking){
+  $("trackingPage").classList.remove("hidden");
+  $("loginPage").classList.add("hidden");
+}else{
+  if(localStorage.token){
+    showDashboard();
+  }
+}
+
+/* ---------- Admin Login ---------- */
+$("loginBtn").onclick = async () => {
+  $("loginError").textContent = "";
+
+  try{
+    const res = await fetch(API + "/login", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        email: $("email").value.trim(),
+        password: $("password").value
+      })
+    });
+
+    if(!res.ok) throw new Error();
+
+    const data = await res.json();
+    localStorage.token = data.token;
+    localStorage.role = data.role || "admin";
+
+    showDashboard();
+  }catch{
+    $("loginError").textContent = "Invalid credentials";
+  }
+};
+
+/* ---------- Dashboard ---------- */
+function showDashboard(){
+  $("loginPage").classList.add("hidden");
+  $("dashboard").classList.remove("hidden");
+  loadShipments();
+}
+
+async function loadShipments(){
+  try{
+    const res = await fetch(API + "/getShipments", {
+      headers: {Authorization: "Bearer " + localStorage.token}
+    });
+
+    const data = await res.json();
+    $("shipmentsList").innerHTML = "";
+
+    data.forEach(s => {
+      const div = document.createElement("div");
+      div.className = "border-b pb-2";
+      div.innerHTML = `
+        <strong>${s.trackId}</strong><br>
+        ${s.originCity} → ${s.destinationCity}<br>
+        <span class="text-sm text-gray-500">
+          Stage ${s.stage} | ETA: ${s.eta || "N/A"}
+        </span>
+      `;
+      $("shipmentsList").appendChild(div);
+    });
+  }catch{
+    alert("Failed to load shipments");
+  }
+}
+
+/* ---------- Save Shipment ---------- */
+$("saveBtn").onclick = async () => {
+  if(localStorage.role !== "admin"){
+    alert("Read-only access");
+    return;
+  }
+
+  const payload = {
+    trackId: $("trackId").value.trim(),
+    originCity: $("originCity").value.trim(),
+    destinationCity: $("destinationCity").value.trim(),
+    eta: $("eta").value.trim(),
+    stage: Number($("stage").value)
+  };
+
+  if(!payload.trackId || !payload.originCity || !payload.destinationCity){
+    alert("Missing required fields");
+    return;
+  }
+
+  try{
+    await fetch(API + "/saveShipment", {
+      method: "POST",
+      headers: {
+        "Content-Type":"application/json",
+        "Authorization":"Bearer " + localStorage.token
+      },
+      body: JSON.stringify(payload)
+    });
+    loadShipments();
+  }catch{
+    alert("Failed to save shipment");
+  }
+};
+
+/* ---------- Customer Tracking ---------- */
+async function trackShipment(){
+  const id = $("trackInput").value.trim();
+  if(!id) return;
+
+  try{
+    const res = await fetch(API + "/getShipments?id=" + encodeURIComponent(id));
+    const s = await res.json();
+
+    if(!s){
+      $("trackResult").innerHTML =
+        "<p class='text-red-600'>Shipment not found</p>";
+      return;
+    }
+
+    $("trackResult").innerHTML = `
+      <p><strong>${s.trackId}</strong></p>
+      <p>${s.originCity} → ${s.destinationCity}</p>
+      <p>Stage: ${s.stage}</p>
+      <p>ETA: ${s.eta || "N/A"}</p>
+    `;
+  }catch{
+    $("trackResult").innerHTML =
+      "<p class='text-red-600'>Error retrieving shipment</p>";
+  }
+}
+
+/* ---------- Logout ---------- */
+function logout(){
+  localStorage.clear();
+  location.reload();
+}
+</script>
+
+</body>
+</html>
